@@ -64,10 +64,7 @@ async function CollectCoverage(source) {
       callCount: true
     });
     // Compile script.
-    let {
-      scriptId
-    } =
-    await session.postAsync('Runtime.compileScript', {
+    let { scriptId } = await session.postAsync('Runtime.compileScript', {
       expression: source,
       sourceURL: "test",
       persistScript: true
@@ -77,18 +74,11 @@ async function CollectCoverage(source) {
     session.on('Runtime.consoleAPICalled',
       message => messages.push(message));
     // Execute script.
-    await session.postAsync('Runtime.runScript', {
-      scriptId
-    });
+    await session.postAsync('Runtime.runScript', { scriptId });
     await session.postAsync('HeapProfiler.collectGarbage');
     // Collect and filter coverage result.
-    let {
-      result
-    } =
-    await session.postAsync('Profiler.takePreciseCoverage');
-    [{
-      functions: coverage
-    }] = result.filter(x => x.scriptId == scriptId);
+    let { result } = await session.postAsync('Profiler.takePreciseCoverage');
+    [{ functions: coverage }] = result.filter(x => x.scriptId == scriptId);
   } finally {
     // Close session and return.
     session.disconnect();
@@ -99,13 +89,8 @@ async function CollectCoverage(source) {
 function MarkUpCode(coverage, source) {
   let ranges = coverage.reduce(
     (result, next) => result = result.concat(next.ranges), []);
-  ranges.sort(function({
-    startOffset: as,
-    endOffset: ae
-  }, {
-    startOffset: bs,
-    endOffset: be
-  }) {
+  ranges.sort(function({ startOffset: as, endOffset: ae },
+                       { startOffset: bs, endOffset: be }) {
     return as == bs ? be - ae : as - bs;
   });
   let result = "";
@@ -130,8 +115,7 @@ function MarkUpCode(coverage, source) {
   }
 
   function CloseSpan() {
-    CopySourceUpTo(stack.top()
-      .endOffset);
+    CopySourceUpTo(stack.top().endOffset);
     result += `</span>`;
     stack.pop();
   }
@@ -139,8 +123,7 @@ function MarkUpCode(coverage, source) {
   // Iterate ranges and reconstruct nesting.
   for (let range of ranges) {
     while (stack.top() !== undefined) {
-      if (range.startOffset < stack.top()
-        .endOffset) break;
+      if (range.startOffset < stack.top().endOffset) break;
       CloseSpan();
     }
     CopySourceUpTo(range.startOffset);
@@ -165,8 +148,7 @@ async function Server(request, response) {
   if (request.method == 'POST') {
     // Collect coverage on the script from input form.
     try {
-      script = (await GetPostBody(request))
-        .script;
+      script = (await GetPostBody(request)).script;
       let [coverage, messages] = await CollectCoverage(script);
       result = MarkUpCode(coverage, script);
       for (let message of messages) {
@@ -194,6 +176,5 @@ async function Server(request, response) {
   response.end(html);
 }
 
-http.createServer(Server)
-  .listen(8080);
+http.createServer(Server).listen(8080);
 
