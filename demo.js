@@ -50,7 +50,7 @@ function Escape(string) {
     }, string);
 }
 
-async function CollectCoverage(source) {
+async function CollectCoverage(source, callCount, detailed) {
   // Open a new inspector session.
   const session = new inspector.Session();
   let messages = [];
@@ -61,7 +61,8 @@ async function CollectCoverage(source) {
     await session.postAsync('Runtime.enable');
     await session.postAsync('Profiler.enable');
     await session.postAsync('Profiler.startPreciseCoverage', {
-      callCount: true
+      callCount,
+      detailed
     });
     // Compile script.
     let { scriptId } = await session.postAsync('Runtime.compileScript', {
@@ -86,7 +87,7 @@ async function CollectCoverage(source) {
   return [coverage, messages];
 }
 
-function MarkUpCode(coverage, source) {
+function MarkUpCode(coverage, source, callCount) {
   let ranges = coverage.reduce(
     (result, next) => result = result.concat(next.ranges), []);
   ranges.sort(function({ startOffset: as, endOffset: ae },
@@ -109,8 +110,9 @@ function MarkUpCode(coverage, source) {
   function OpenSpan(range) {
     let count = range.count;
     let c = count > 0 ? count * 2 + 32 | 0 : 0
-    result += `<span style="background-color: rgb(255, ${255-c}, ${255-c})", `;
-    result += `title="count: ${count}">`;
+    result += `<span style="background-color: rgb(255, ${255-c}, ${255-c})"`;
+    if (callCount) result += ` title="count: ${count}"`;
+    result += ">";
     stack.push(range);
   }
 
@@ -145,12 +147,17 @@ async function Server(request, response) {
   let script = "";
   let result = "";
   let message_log = "";
+  let detailed = false;
+  let count = false;
   if (request.method == 'POST') {
     // Collect coverage on the script from input form.
     try {
-      script = (await GetPostBody(request)).script;
-      let [coverage, messages] = await CollectCoverage(script);
-      result = MarkUpCode(coverage, script);
+      let post = await GetPostBody(request);
+      script = post.script;
+      count = post.count === "yes";
+      detailed = post.detailed === "yes";
+      let [coverage, messages] = await CollectCoverage(script, count, detailed);
+      result = MarkUpCode(coverage, script, count);
       for (let message of messages) {
         message_log += `console.${message.params.type}: `;
         message_log += `${message.params.args[0].value}<br/>`;
@@ -167,6 +174,8 @@ async function Server(request, response) {
     ["SCRIPT", script],
     ["RESULT", result],
     ["CONSOLE", message_log],
+    ["COUNT_CHECKED", count ? "checked" : ""],
+    ["DETAILED_CHECKED", detailed ? "checked" : ""],
   ].reduce(function(template, [pattern, replacement]) {
     return template.replace(pattern, replacement);
   }, template);

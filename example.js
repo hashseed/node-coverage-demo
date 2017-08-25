@@ -5,6 +5,10 @@ function fib(x) {
   return fib(x-1) + fib(x-2);
 }
 
+function dead() {
+  unreachable;
+}
+
 var failed = false;
 try {
   fib(8);
