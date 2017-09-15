@@ -167,9 +167,9 @@ async function Server(request, response) {
     }
   } else {
     // Use example file.
-    script = await ReadFile("example.js");
+    script = await ReadFile("coverage/example.js");
   }
-  let template = await ReadFile("template.html");
+  let template = await ReadFile("coverage/template.html");
   let html = [
     ["SCRIPT", script],
     ["RESULT", result],
