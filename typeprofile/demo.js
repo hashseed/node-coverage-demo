@@ -50,59 +50,51 @@ function Escape(string) {
     }, string);
 }
 
-async function CollectCoverage(source, callCount, detailed) {
+async function CollectProfile(source) {
   // Open a new inspector session.
   const session = new inspector.Session();
   let messages = [];
-  let coverage = undefined;
+  let profile = undefined;
   try {
     session.connect();
     // Enable relevant inspector domains.
     await session.postAsync('Runtime.enable');
     await session.postAsync('Profiler.enable');
-    await session.postAsync('Profiler.startPreciseCoverage', {
-      callCount,
-      detailed
-    });
+    await session.postAsync('Profiler.startTypeProfile');
     // Compile script.
     let { scriptId } = await session.postAsync('Runtime.compileScript', {
       expression: source,
       sourceURL: "test",
       persistScript: true
     });
+    
     // Collect console log during execution.
-
     session.on('Runtime.consoleAPICalled',
       message => messages.push(message));
     // Execute script.
     await session.postAsync('Runtime.runScript', { scriptId });
     await session.postAsync('HeapProfiler.collectGarbage');
     // Collect and filter coverage result.
-    let { result } = await session.postAsync('Profiler.takePreciseCoverage');
-    [{ functions: coverage }] = result.filter(x => x.scriptId == scriptId);
-    await session.postAsync('Profiler.stopPreciseCoverage');
+    let { result } = await session.postAsync('Profiler.takeTypeProfile');
+    profile = result.filter(x => x.scriptId == scriptId);
+    await session.postAsync('Profiler.stopTypeProfile');
     await session.postAsync('Profiler.disable');
     await session.postAsync('Runtime.disable');
   } finally {
     // Close session and return.
     session.disconnect();
   }
-  return [coverage, messages];
+  return [profile, messages];
 }
 
-function MarkUpCode(coverage, source, callCount) {
-  let ranges = coverage.reduce(
-    (result, next) => result = result.concat(next.ranges), []);
-  ranges.sort(function({ startOffset: as, endOffset: ae },
-                       { startOffset: bs, endOffset: be }) {
-    return as == bs ? be - ae : as - bs;
+function MarkUpCode(profile, source) {
+  let entries = profile.reduce(
+    (result, next) => result = result.concat(next.entries), []);
+  entries.sort(function({ offset: ao }, { offset: bo }) {
+    return ao-bo;
   });
   let result = "";
   let cursor = 0;
-  let stack = [];
-  stack.top = function() {
-    return this.length ? this[this.length - 1] : undefined;
-  }
 
   // Helper functions.
   function CopySourceUpTo(up_to) {
@@ -110,31 +102,22 @@ function MarkUpCode(coverage, source, callCount) {
     cursor = up_to;
   }
 
-  function OpenSpan(range) {
-    let count = range.count;
-    let c = count > 0 ? count * 2 + 32 | 0 : 0
-    result += `<span style="background-color: rgb(255, ${255-c}, ${255-c})"`;
-    if (callCount) result += ` title="count: ${count}"`;
+  function PrintType(type) {
+    result += `<span style="background-color: rgb(255, 0, 0); color: white"`;
     result += ">";
-    stack.push(range);
-  }
-
-  function CloseSpan() {
-    CopySourceUpTo(stack.top().endOffset);
-    result += `</span>`;
-    stack.pop();
+    result += type.name;
+    result += "</span>";
+    result += " "
   }
 
   // Iterate ranges and reconstruct nesting.
-  for (let range of ranges) {
-    while (stack.top() !== undefined) {
-      if (range.startOffset < stack.top().endOffset) break;
-      CloseSpan();
+  for (let entry of entries) {
+    CopySourceUpTo(entry.offset);
+    for (let type of entry.types) {
+      PrintType(type);
     }
-    CopySourceUpTo(range.startOffset);
-    OpenSpan(range);
   }
-  while (stack.top() !== undefined) CloseSpan();
+  CopySourceUpTo(source.length);
   return result;
 }
 
@@ -150,17 +133,13 @@ async function Server(request, response) {
   let script = "";
   let result = "";
   let message_log = "";
-  let detailed = false;
-  let count = false;
   if (request.method == 'POST') {
     // Collect coverage on the script from input form.
     try {
       let post = await GetPostBody(request);
       script = post.script;
-      count = post.count === "yes";
-      detailed = post.detailed === "yes";
-      let [coverage, messages] = await CollectCoverage(script, count, detailed);
-      result = MarkUpCode(coverage, script, count);
+      let [profile, messages] = await CollectProfile(script);
+      result = MarkUpCode(profile, script);
       for (let message of messages) {
         message_log += `console.${message.params.type}: `;
         message_log += `${message.params.args[0].value}<br/>`;
@@ -170,15 +149,13 @@ async function Server(request, response) {
     }
   } else {
     // Use example file.
-    script = await ReadFile("coverage/example.js");
+    script = await ReadFile("typeprofile/example.js");
   }
-  let template = await ReadFile("coverage/template.html");
+  let template = await ReadFile("typeprofile/template.html");
   let html = [
     ["SCRIPT", script],
     ["RESULT", result],
     ["CONSOLE", message_log],
-    ["COUNT_CHECKED", count ? "checked" : ""],
-    ["DETAILED_CHECKED", detailed ? "checked" : ""],
   ].reduce(function(template, [pattern, replacement]) {
     return template.replace(pattern, replacement);
   }, template);
