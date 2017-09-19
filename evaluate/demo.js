@@ -50,92 +50,49 @@ function Escape(string) {
     }, string);
 }
 
-async function CollectCoverage(source, callCount, detailed) {
+async function Evaluate(source, expression, allow_side_effect) {
   // Open a new inspector session.
   const session = new inspector.Session();
+  let result = undefined;
   let messages = [];
-  let coverage = undefined;
   try {
     session.connect();
     // Enable relevant inspector domains.
     await session.postAsync('Runtime.enable');
-    await session.postAsync('Profiler.enable');
-    await session.postAsync('Profiler.startPreciseCoverage', {
-      callCount,
-      detailed
-    });
+    await session.postAsync('Debugger.enable');
     // Compile script.
     let { scriptId } = await session.postAsync('Runtime.compileScript', {
       expression: source,
       sourceURL: "test",
       persistScript: true
     });
-    // Collect console log during execution.
 
+    session.once('Debugger.paused', function(r) {
+      let callFrameId = r.params.callFrames[0].callFrameId;
+      function after_eval(e, r) {
+        if (r.exceptionDetails !== undefined) {
+          result = "[exception]";
+        } else {
+          result = r.result.value;
+        }
+      }
+      session.post('Debugger.evaluateOnCallFrame',
+                   { callFrameId,
+                     expression,
+                     throwOnSideEffect: !allow_side_effect},
+                   after_eval);
+    });
     session.on('Runtime.consoleAPICalled',
       message => messages.push(message));
-    // Execute script.
+
     await session.postAsync('Runtime.runScript', { scriptId });
-    await session.postAsync('HeapProfiler.collectGarbage');
-    // Collect and filter coverage result.
-    let { result } = await session.postAsync('Profiler.takePreciseCoverage');
-    [{ functions: coverage }] = result.filter(x => x.scriptId == scriptId);
-    await session.postAsync('Profiler.stopPreciseCoverage');
-    await session.postAsync('Profiler.disable');
+    await session.postAsync('Debugger.disable');
     await session.postAsync('Runtime.disable');
   } finally {
     // Close session and return.
     session.disconnect();
   }
-  return [coverage, messages];
-}
-
-function MarkUpCode(coverage, source, callCount) {
-  let ranges = coverage.reduce(
-    (result, next) => result = result.concat(next.ranges), []);
-  ranges.sort(function({ startOffset: as, endOffset: ae },
-                       { startOffset: bs, endOffset: be }) {
-    return as == bs ? be - ae : as - bs;
-  });
-  let result = "";
-  let cursor = 0;
-  let stack = [];
-  stack.top = function() {
-    return this.length ? this[this.length - 1] : undefined;
-  }
-
-  // Helper functions.
-  function CopySourceUpTo(up_to) {
-    result += Escape(source.substring(cursor, up_to));
-    cursor = up_to;
-  }
-
-  function OpenSpan(range) {
-    let count = range.count;
-    let c = count > 0 ? count * 2 + 32 | 0 : 0
-    result += `<span style="background-color: rgb(255, ${255-c}, ${255-c})"`;
-    if (callCount) result += ` title="count: ${count}"`;
-    result += ">";
-    stack.push(range);
-  }
-
-  function CloseSpan() {
-    CopySourceUpTo(stack.top().endOffset);
-    result += `</span>`;
-    stack.pop();
-  }
-
-  // Iterate ranges and reconstruct nesting.
-  for (let range of ranges) {
-    while (stack.top() !== undefined) {
-      if (range.startOffset < stack.top().endOffset) break;
-      CloseSpan();
-    }
-    CopySourceUpTo(range.startOffset);
-    OpenSpan(range);
-  }
-  while (stack.top() !== undefined) CloseSpan();
-  return result;
+  return [messages, result];
 }
 
 async function GetPostBody(request) {
@@ -149,36 +106,38 @@ async function GetPostBody(request) {
 async function Server(request, response) {
   let script = "";
   let result = "";
+  let eval_script = "";
   let message_log = "";
-  let detailed = false;
-  let count = false;
+  let allow_side_effect = true;
   if (request.method == 'POST') {
     // Collect coverage on the script from input form.
     try {
       let post = await GetPostBody(request);
       script = post.script;
-      count = post.count === "yes";
-      detailed = post.detailed === "yes";
-      let [coverage, messages] = await CollectCoverage(script, count, detailed);
-      result = MarkUpCode(coverage, script, count);
+      eval_script = post.eval;
+      allow_side_effect = post.allow == "yes";
+      let messages = undefined;
+      [messages, result] = await Evaluate(script, eval_script, allow_side_effect);
       for (let message of messages) {
         message_log += `console.${message.params.type}: `;
         message_log += `${message.params.args[0].value}<br/>`;
       }
     } catch (e) {
-      message_log = Escape(e.toString());
+      console.error("error");
+      console.error(e);
     }
   } else {
     // Use example file.
-    script = await ReadFile("coverage/example.js");
+    script = await ReadFile("evaluate/example.js");
+    eval_script = await ReadFile("evaluate/eval.js");
   }
-  let template = await ReadFile("coverage/template.html");
+  let template = await ReadFile("evaluate/template.html");
   let html = [
     ["SCRIPT", script],
     ["RESULT", result],
+    ["EVAL", eval_script],
     ["CONSOLE", message_log],
-    ["COUNT_CHECKED", count ? "checked" : ""],
-    ["DETAILED_CHECKED", detailed ? "checked" : ""],
+    ["ALLOW", allow_side_effect ? "checked" : ""],
   ].reduce(function(template, [pattern, replacement]) {
     return template.replace(pattern, replacement);
   }, template);

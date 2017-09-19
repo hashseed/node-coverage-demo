@@ -1,0 +1,32 @@
+<html>
+   <body>
+      <style>
+         #left, #right { display: table-cell }
+         #left { float: left, width: 500px }
+         #right { width: 500px }
+      </style>
+      <tt>
+         <div>
+            <div id="left">
+            <h1>script</h1>
+            <form method="post">
+               <textarea name="script" rows="10" cols="40">SCRIPT</textarea>
+               <br/><br/>
+               <label>evaluate at debugger statement</label>
+               <br/><br/>
+               <textarea name="eval" rows="2" cols="40">EVAL</textarea>
+               <br/><br/>
+               <input type="submit" value="run">
+               <input type="checkbox" name="allow" value="yes" ALLOW>allow side effect</input>
+            </form>
+            </div>
+            <div id="right">
+            <h1>result</h1>
+            RESULT
+            <h1>console</h1>
+            CONSOLE
+            </div>
+         </div>
+      </tt>
+   </body>
+</html>
