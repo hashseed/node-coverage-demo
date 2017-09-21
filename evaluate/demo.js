@@ -3,6 +3,7 @@ const inspector = require('inspector');
 const http = require('http');
 const query = require('querystring');
 const fs = require('fs');
+const util = require('util');
 
 inspector.Session.prototype.postAsync = function(...args) {
   let session = this;
@@ -21,18 +22,7 @@ inspector.Session.prototype.postAsync = function(...args) {
     });
 };
 
-async function ReadFile(file_name) {
-  return new Promise(
-    function(resolve, reject) {
-      fs.readFile(file_name, "utf8", function(error, result) {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(result);
-        }
-      });
-    });
-}
+const ReadFile = file_name => util.promisify(fs.readFile)(file_name, "utf8");
 
 // Reformat string for HTML.
 function Escape(string) {
