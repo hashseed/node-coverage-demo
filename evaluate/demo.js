@@ -1,54 +1,8 @@
 'use strict';
-const inspector = require('inspector');
+
 const http = require('http');
-const query = require('querystring');
-const fs = require('fs');
-
-inspector.Session.prototype.postAsync = function(...args) {
-  let session = this;
-  return new Promise(
-    function(resolve, reject) {
-      session.post(...args,
-        function(error, result) {
-          if (error !== null) {
-            reject(error);
-          } else if (result.exceptionDetails !== undefined) {
-            reject(result.exceptionDetails.exception.description);
-          } else {
-            resolve(result);
-          }
-        });
-    });
-};
-
-async function ReadFile(file_name) {
-  return new Promise(
-    function(resolve, reject) {
-      fs.readFile(file_name, "utf8", function(error, result) {
-        if (error) {
-          reject(error);
-        } else {
-          resolve(result);
-        }
-      });
-    });
-}
-
-// Reformat string for HTML.
-function Escape(string) {
-  return [
-    ["&", "&amp;"],
-    [" ", "&nbsp;"],
-    ["<", "&lt;"],
-    [">", "&gt;"],
-    ["\r\n", "<br/>"],
-    ["\n", "<br/>"],
-    ["\"", "&quot;"],
-  ].reduce(
-    function(string, [pattern, replacement]) {
-      return string.replace(new RegExp(pattern, "g"), replacement);
-    }, string);
-}
+const inspector = require('inspector');
+const { ReadFile, GetPostBody, Escape } = require('shared');
 
 async function Evaluate(source, expression, allow_side_effect) {
   // Open a new inspector session.
@@ -93,14 +47,6 @@ async function Evaluate(source, expression, allow_side_effect) {
     session.disconnect();
   }
   return [messages, result];
-}
-
-async function GetPostBody(request) {
-  return new Promise(function(resolve) {
-    let body = "";
-    request.on('data', data => body += data);
-    request.on('end', end => resolve(query.parse(body)));
-  });
 }
 
 async function Server(request, response) {
