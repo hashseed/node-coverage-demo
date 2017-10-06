@@ -1,3 +1,4 @@
+
 module.paths.push(".");
 require("babel-register");
 debugger;
